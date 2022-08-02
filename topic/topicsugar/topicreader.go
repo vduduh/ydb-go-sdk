@@ -1,12 +1,66 @@
 package topicsugar
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/ydb-platform/ydb-go-sdk/v3/internal/xcontext"
+	"github.com/ydb-platform/ydb-go-sdk/v3/internal/xerrors"
 	"github.com/ydb-platform/ydb-go-sdk/v3/topic/topicreader"
 )
+
+var errProcessBatchCompleted = xerrors.Wrap(errors.New("ydb: batch process completed"))
+
+// ReadProcessAndCommitLoop is a simple way to process messages
+// it read message batch from reader, call `process` callback for process message in your code, then commit message
+// if process return nil
+//
+// ReadProcessAndCommitLoop work until ctx cancelled
+// return nil if ctx cancelled else - return read/process/commit error
+func ReadProcessAndCommitLoop(ctx context.Context, r batchReaderAndCommitter, process func(ctx context.Context, batch *topicreader.Batch) error) error {
+	iteration := func() error {
+		batch, err := r.ReadMessageBatch(ctx)
+		if err != nil {
+			return err
+		}
+
+		processCtx, cancel := xcontext.WithErrCancel(ctx)
+		defer cancel(errProcessBatchCompleted)
+
+		go func() {
+			select {
+			case <-batch.Context().Done():
+				cancel(batch.Context().Err())
+			case <-processCtx.Done():
+				// pass
+			}
+		}()
+
+		if err = process(processCtx, batch); err != nil {
+			return err
+		}
+
+		return r.Commit(ctx, batch)
+	}
+
+	for {
+		if err := iteration(); err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+
+			return err
+		}
+	}
+}
+
+type batchReaderAndCommitter interface {
+	ReadMessageBatch(ctx context.Context, opts ...topicreader.ReadBatchOption) (*topicreader.Batch, error)
+	Commit(ctx context.Context, obj topicreader.CommitRangeGetter) error
+}
 
 // ProtoUnmarshal unmarshal message content to protobuf struct
 //

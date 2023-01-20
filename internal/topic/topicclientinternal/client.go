@@ -17,6 +17,7 @@ import (
 	"github.com/ydb-platform/ydb-go-sdk/v3/topic/topicreader"
 	"github.com/ydb-platform/ydb-go-sdk/v3/topic/topictypes"
 	"github.com/ydb-platform/ydb-go-sdk/v3/topic/topicwriter"
+	"github.com/ydb-platform/ydb-go-sdk/v3/trace"
 )
 
 type Client struct {
@@ -216,6 +217,7 @@ func (c *Client) StartReader(
 	opts = append(defaultOpts, opts...)
 
 	internalReader := topicreaderinternal.NewReader(connector, consumer, readSelectors, opts...)
+	trace.TopicOnReaderStart(internalReader.Tracer(), internalReader.ID(), consumer)
 	return topicreader.NewReader(internalReader), nil
 }
 

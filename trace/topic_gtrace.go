@@ -30,6 +30,25 @@ func (t Topic) Compose(x Topic, opts ...TopicComposeOption) (ret Topic) {
 		}
 	}
 	{
+		h1 := t.OnReaderStart
+		h2 := x.OnReaderStart
+		ret.OnReaderStart = func(info TopicReaderStartInfo) {
+			if options.panicCallback != nil {
+				defer func() {
+					if e := recover(); e != nil {
+						options.panicCallback(e)
+					}
+				}()
+			}
+			if h1 != nil {
+				h1(info)
+			}
+			if h2 != nil {
+				h2(info)
+			}
+		}
+	}
+	{
 		h1 := t.OnReaderReconnect
 		h2 := x.OnReaderReconnect
 		ret.OnReaderReconnect = func(startInfo TopicReaderReconnectStartInfo) func(TopicReaderReconnectDoneInfo) {
@@ -686,6 +705,13 @@ func (t Topic) Compose(x Topic, opts ...TopicComposeOption) (ret Topic) {
 	}
 	return ret
 }
+func (t Topic) onReaderStart(info TopicReaderStartInfo) {
+	fn := t.OnReaderStart
+	if fn == nil {
+		return
+	}
+	fn(info)
+}
 func (t Topic) onReaderReconnect(startInfo TopicReaderReconnectStartInfo) func(doneInfo TopicReaderReconnectDoneInfo) {
 	fn := t.OnReaderReconnect
 	if fn == nil {
@@ -964,6 +990,12 @@ func (t Topic) onWriterReadUnknownGrpcMessage(info TopicOnWriterReadUnknownGrpcM
 		return
 	}
 	fn(info)
+}
+func TopicOnReaderStart(t Topic, readerID int64, consumer string) {
+	var p TopicReaderStartInfo
+	p.ReaderID = readerID
+	p.Consumer = consumer
+	t.onReaderStart(p)
 }
 func TopicOnReaderReconnect(t Topic, reason error) func(error) {
 	var p TopicReaderReconnectStartInfo

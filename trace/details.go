@@ -28,6 +28,8 @@ const (
 
 	TopicControlPlaneEvents
 
+	TopicReaderCustomerEvents
+
 	TopicReaderStreamLifeCycleEvents
 	TopicReaderStreamEvents
 	TopicReaderMessageEvents
@@ -81,7 +83,7 @@ const (
 		TableSessionQueryEvents |
 		TableSessionTransactionEvents
 
-	TopicReaderEvents = TopicReaderStreamEvents | TopicReaderMessageEvents |
+	TopicReaderEvents = TopicReaderCustomerEvents | TopicReaderStreamEvents | TopicReaderMessageEvents |
 		TopicReaderPartitionEvents |
 		TopicReaderStreamLifeCycleEvents
 

@@ -965,8 +965,9 @@ func (t Topic) onWriterReadUnknownGrpcMessage(info TopicOnWriterReadUnknownGrpcM
 	}
 	fn(info)
 }
-func TopicOnReaderReconnect(t Topic) func(error) {
+func TopicOnReaderReconnect(t Topic, reason error) func(error) {
 	var p TopicReaderReconnectStartInfo
+	p.Reason = reason
 	res := t.onReaderReconnect(p)
 	return func(e error) {
 		var p TopicReaderReconnectDoneInfo

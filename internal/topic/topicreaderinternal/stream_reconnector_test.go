@@ -354,7 +354,7 @@ func TestTopicReaderReconnectorReconnectWithError(t *testing.T) {
 		streamErr: errors.New("start-error"),
 	}
 	reconnector.initChannelsAndClock()
-	err := reconnector.reconnect(ctx, nil)
+	err := reconnector.reconnect(ctx, nil, nil)
 	require.ErrorIs(t, err, testErr)
 	require.ErrorIs(t, reconnector.streamErr, testErr)
 }

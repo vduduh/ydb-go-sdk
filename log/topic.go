@@ -23,7 +23,7 @@ func Topic(topicLogger Logger, details trace.Details, opts ...option) trace.Topi
 		t.OnReaderReconnect = func(startInfo trace.TopicReaderReconnectStartInfo) func(doneInfo trace.TopicReaderReconnectDoneInfo) {
 			start := time.Now()
 
-			logger.Debugf("reconnecting")
+			logger.Debugf(`reconnecting {reason: "%v"}`, startInfo.Reason)
 
 			return func(doneInfo trace.TopicReaderReconnectDoneInfo) {
 				logger.Infof(`reconnected {latency: "%v"}`, time.Since(start))

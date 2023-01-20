@@ -244,7 +244,9 @@ type (
 	//
 	// Notice: This API is EXPERIMENTAL and may be changed or removed in a
 	// later release.
-	TopicReaderReconnectStartInfo struct{}
+	TopicReaderReconnectStartInfo struct {
+		Reason error
+	}
 
 	// TopicReaderReconnectDoneInfo
 	//

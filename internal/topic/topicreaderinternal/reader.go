@@ -177,8 +177,8 @@ func (r *Reader) Commit(ctx context.Context, offsets PublicCommitRangeGetter) (e
 	cr := offsets.getCommitRange().priv
 	if cr.partitionSession.readerID != r.readerID {
 		return xerrors.WithStackTrace(xerrors.Wrap(fmt.Errorf(
-			"ydb: commit with session from other reader, messages session reader id (%v) != current reader id (%v)",
-			cr.partitionSession.readerID, r.readerID,
+			"ydb: messages session reader id (%v) != current reader id (%v): %w",
+			cr.partitionSession.readerID, r.readerID, errCommitSessionFromOtherReader,
 		)))
 	}
 
@@ -189,9 +189,9 @@ func (r *Reader) CommitRanges(ctx context.Context, ranges []PublicCommitRange) e
 	for i := range ranges {
 		if ranges[i].priv.partitionSession.readerID != r.readerID {
 			return xerrors.WithStackTrace(xerrors.Wrap(fmt.Errorf(
-				"ydb: commit ranges (range item %v) with session from other reader."+
-					"messages session reader id (%v) != current reader id (%v)",
-				i, ranges[i].priv.partitionSession.readerID, r.readerID,
+				"ydb: commit ranges (range item %v) "+
+					"messages session reader id (%v) != current reader id (%v): %w",
+				i, ranges[i].priv.partitionSession.readerID, r.readerID, errCommitSessionFromOtherReader,
 			)))
 		}
 	}

@@ -9,7 +9,6 @@ import (
 	"github.com/ydb-platform/ydb-go-sdk/v3/config"
 	"github.com/ydb-platform/ydb-go-sdk/v3/discovery"
 	balancerConfig "github.com/ydb-platform/ydb-go-sdk/v3/internal/balancer/config"
-	"github.com/ydb-platform/ydb-go-sdk/v3/internal/closer"
 	"github.com/ydb-platform/ydb-go-sdk/v3/internal/conn"
 	internalDiscovery "github.com/ydb-platform/ydb-go-sdk/v3/internal/discovery"
 	discoveryConfig "github.com/ydb-platform/ydb-go-sdk/v3/internal/discovery/config"
@@ -23,16 +22,11 @@ import (
 
 var ErrNoEndpoints = xerrors.Wrap(fmt.Errorf("no endpoints"))
 
-type discoveryClient interface {
-	discovery.Client
-	closer.Closer
-}
-
 type Balancer struct {
 	driverConfig      config.Config
 	balancerConfig    balancerConfig.Config
+	discoveryClient   discovery.Client
 	pool              *conn.Pool
-	discoveryClient   func(ctx context.Context) (discoveryClient, error)
 	discoveryRepeater repeater.Repeater
 	localDCDetector   func(ctx context.Context, endpoints []endpoint.Endpoint) (string, error)
 
@@ -49,22 +43,6 @@ func (b *Balancer) OnUpdate(onDiscovery func(ctx context.Context, endpoints []en
 }
 
 func (b *Balancer) clusterDiscovery(ctx context.Context) (err error) {
-	if err = retry.Retry(ctx, func(childCtx context.Context) (err error) {
-		if err = b.clusterDiscoveryAttempt(childCtx); err != nil {
-			// if got err but parent context is not done - mark error as retryable
-			if err != nil && ctx.Err() == nil && xerrors.IsTimeoutError(err) {
-				return xerrors.WithStackTrace(xerrors.Retryable(err))
-			}
-			return xerrors.WithStackTrace(err)
-		}
-		return nil
-	}, retry.WithIdempotent(true)); err != nil {
-		return xerrors.WithStackTrace(err)
-	}
-	return nil
-}
-
-func (b *Balancer) clusterDiscoveryAttempt(ctx context.Context) (err error) {
 	var (
 		onDone = trace.DriverOnBalancerUpdate(
 			b.driverConfig.Trace(),
@@ -73,7 +51,6 @@ func (b *Balancer) clusterDiscoveryAttempt(ctx context.Context) (err error) {
 		)
 		endpoints []endpoint.Endpoint
 		localDC   string
-		cancel    context.CancelFunc
 	)
 
 	defer func() {
@@ -81,25 +58,14 @@ func (b *Balancer) clusterDiscoveryAttempt(ctx context.Context) (err error) {
 		for _, e := range endpoints {
 			nodes = append(nodes, e.Copy())
 		}
-		onDone(nodes, localDC, err)
+		onDone(
+			nodes,
+			localDC,
+			err,
+		)
 	}()
 
-	if dialTimeout := b.driverConfig.DialTimeout(); dialTimeout > 0 {
-		ctx, cancel = context.WithTimeout(ctx, dialTimeout)
-	} else {
-		ctx, cancel = context.WithCancel(ctx)
-	}
-	defer cancel()
-
-	client, err := b.discoveryClient(ctx)
-	if err != nil {
-		return xerrors.WithStackTrace(err)
-	}
-	defer func() {
-		_ = client.Close(ctx)
-	}()
-
-	endpoints, err = client.Discover(ctx)
+	endpoints, err = b.discoveryClient.Discover(ctx)
 	if err != nil {
 		return xerrors.WithStackTrace(err)
 	}
@@ -161,6 +127,12 @@ func New(
 	pool *conn.Pool,
 	opts ...discoveryConfig.Option,
 ) (b *Balancer, err error) {
+	if t := driverConfig.DialTimeout(); t > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, t)
+		defer cancel()
+	}
+
 	var (
 		onDone = trace.DriverOnBalancerInit(
 			driverConfig.Trace(),
@@ -176,16 +148,7 @@ func New(
 		driverConfig:    driverConfig,
 		pool:            pool,
 		localDCDetector: detectLocalDC,
-		discoveryClient: func(ctx context.Context) (_ discoveryClient, err error) {
-			cc, err := grpc.DialContext(ctx,
-				"dns:///"+b.driverConfig.Endpoint(),
-				b.driverConfig.GrpcDialOptions()...,
-			)
-			if err != nil {
-				return nil, xerrors.WithStackTrace(err)
-			}
-			return internalDiscovery.New(cc, discoveryConfig), nil
-		},
+		discoveryClient: internalDiscovery.New(discoveryConfig, driverConfig.GrpcDialOptions()...),
 	}
 
 	if config := driverConfig.Balancer(); config == nil {
@@ -202,12 +165,23 @@ func New(
 			nil, balancerConfig.Info{}, false)
 	} else {
 		// initialization of balancer state
-		if err = b.clusterDiscovery(ctx); err != nil {
+		if err = retry.Retry(ctx, func(ctx context.Context) (err error) {
+			if err = b.clusterDiscovery(ctx); err != nil {
+				return xerrors.WithStackTrace(err)
+			}
+			return nil
+		}, retry.WithIdempotent(true)); err != nil {
 			return nil, xerrors.WithStackTrace(err)
 		}
+
 		// run background discovering
 		if d := discoveryConfig.Interval(); d > 0 {
-			b.discoveryRepeater = repeater.New(d, b.clusterDiscoveryAttempt,
+			b.discoveryRepeater = repeater.New(d, func(ctx context.Context) (err error) {
+				ctx, cancel := context.WithTimeout(ctx, d)
+				defer cancel()
+
+				return b.clusterDiscovery(ctx)
+			},
 				repeater.WithName("discovery"),
 				repeater.WithTrace(b.driverConfig.Trace()),
 			)

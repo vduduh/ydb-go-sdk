@@ -2,9 +2,9 @@ package discovery
 
 import (
 	"context"
-	"io"
 	"net"
 	"strconv"
+	"time"
 
 	"github.com/ydb-platform/ydb-go-genproto/Ydb_Discovery_V1"
 	"github.com/ydb-platform/ydb-go-genproto/protos/Ydb_Discovery"
@@ -17,20 +17,34 @@ import (
 	"github.com/ydb-platform/ydb-go-sdk/v3/trace"
 )
 
-func New(cc grpc.ClientConnInterface, config config.Config) *Client {
+var DefaultDiscoveryInterval = time.Minute
+
+func New(
+	config config.Config,
+	grpcOptions ...grpc.DialOption,
+) *Client {
 	return &Client{
-		config: config,
-		cc:     cc,
-		client: Ydb_Discovery_V1.NewDiscoveryServiceClient(cc),
+		config:      config,
+		grpcOptions: grpcOptions,
 	}
 }
 
 var _ discovery.Client = &Client{}
 
 type Client struct {
-	config config.Config
-	cc     grpc.ClientConnInterface
-	client Ydb_Discovery_V1.DiscoveryServiceClient
+	config      config.Config
+	grpcOptions []grpc.DialOption
+}
+
+func (c *Client) client(ctx context.Context) (Ydb_Discovery_V1.DiscoveryServiceClient, *grpc.ClientConn, error) {
+	cc, err := grpc.DialContext(ctx,
+		"dns:///"+c.config.Endpoint(),
+		c.grpcOptions...,
+	)
+	if err != nil {
+		return nil, nil, xerrors.WithStackTrace(err)
+	}
+	return Ydb_Discovery_V1.NewDiscoveryServiceClient(cc), cc, nil
 }
 
 // Discover cluster endpoints
@@ -58,7 +72,15 @@ func (c *Client) Discover(ctx context.Context) (endpoints []endpoint.Endpoint, e
 		return nil, xerrors.WithStackTrace(err)
 	}
 
-	response, err = c.client.ListEndpoints(ctx, &request)
+	client, cc, err := c.client(ctx)
+	if err != nil {
+		return nil, xerrors.WithStackTrace(err)
+	}
+	defer func() {
+		_ = cc.Close()
+	}()
+
+	response, err = client.ListEndpoints(ctx, &request)
 	if err != nil {
 		return nil, xerrors.WithStackTrace(err)
 	}
@@ -106,7 +128,15 @@ func (c *Client) WhoAmI(ctx context.Context) (whoAmI *discovery.WhoAmI, err erro
 		return nil, xerrors.WithStackTrace(err)
 	}
 
-	response, err = c.client.WhoAmI(ctx, &request)
+	client, cc, err := c.client(ctx)
+	if err != nil {
+		return nil, xerrors.WithStackTrace(err)
+	}
+	defer func() {
+		_ = cc.Close()
+	}()
+
+	response, err = client.WhoAmI(ctx, &request)
 	if err != nil {
 		return nil, xerrors.WithStackTrace(err)
 	}
@@ -127,9 +157,6 @@ func (c *Client) WhoAmI(ctx context.Context) (whoAmI *discovery.WhoAmI, err erro
 	}, nil
 }
 
-func (c *Client) Close(context.Context) error {
-	if cc, has := c.cc.(io.Closer); has {
-		return cc.Close()
-	}
+func (c *Client) Close(ctx context.Context) error {
 	return nil
 }

@@ -27,12 +27,11 @@ var (
 
 type (
 	wrapTemplateParams struct {
-		Version          string
-		PrintSourceQuery bool
-		SourceQuery      string
-		Pragmas          []string
-		Declares         []Declare
-		FinalQuery       string
+		Version     string
+		SourceQuery string
+		Pragmas     []string
+		Declares    []Declare
+		FinalQuery  string
 	}
 )
 
@@ -43,17 +42,29 @@ func (b Bindings) wrap(query string, re *regexp.Regexp, replace func(string) str
 		return query, params, nil
 	}
 
-	p := wrapTemplateParams{
-		Version:          "v" + meta.Version,
-		PrintSourceQuery: b.AllowBindParams || b.TablePathPrefix != "",
-		SourceQuery:      query,
-		Pragmas:          b.pragmas(),
-		Declares:         b.declares(params),
-		FinalQuery:       query,
+	return wrap(query, func() string {
+		if b.AllowBindParams && re != nil && replace != nil {
+			return re.ReplaceAllStringFunc(query, replace)
+		}
+		return query
+	}(), params, b.pragmas())
+}
+
+func wrap(sourceQuery, finalQuery string, params *table.QueryParameters, pragmas []string) (
+	_ string, _ *table.QueryParameters, err error,
+) {
+	var declares = declares(params)
+
+	if sourceQuery == finalQuery && len(pragmas) == 0 && len(declares) == 0 {
+		return finalQuery, params, nil
 	}
 
-	if b.AllowBindParams && re != nil && replace != nil {
-		p.FinalQuery = re.ReplaceAllStringFunc(query, replace)
+	p := wrapTemplateParams{
+		Version:     "v" + meta.Version,
+		SourceQuery: sourceQuery,
+		Pragmas:     pragmas,
+		Declares:    declares,
+		FinalQuery:  finalQuery,
 	}
 
 	buffer := allocator.Buffers.Get()

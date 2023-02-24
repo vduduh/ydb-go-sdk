@@ -19,10 +19,7 @@ func (d Declare) String() string {
 	return "DECLARE " + d.Name + " AS " + d.Type
 }
 
-func (b Bindings) declares(params *table.QueryParameters) (declares []Declare) {
-	if !b.AllowBindParams {
-		return nil
-	}
+func declares(params *table.QueryParameters) (declares []Declare) {
 	params.Each(func(name string, v types.Value) {
 		declares = append(declares, Declare{
 			Name: name,
@@ -33,6 +30,13 @@ func (b Bindings) declares(params *table.QueryParameters) (declares []Declare) {
 		return declares[i].Name < declares[j].Name
 	})
 	return declares
+}
+
+func (b Bindings) declares(params *table.QueryParameters) []Declare {
+	if !b.AllowBindParams {
+		return nil
+	}
+	return declares(params)
 }
 
 func GenerateDeclareSection(args []sql.NamedArg) (string, error) {

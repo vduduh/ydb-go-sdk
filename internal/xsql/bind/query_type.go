@@ -1,6 +1,9 @@
 package bind
 
-import "regexp"
+import (
+	"regexp"
+	"strings"
+)
 
 var (
 	// regexps for detect one of type of query
@@ -18,7 +21,18 @@ const (
 	ydbArgs
 )
 
+func filterCommentLines(q string) string {
+	lines := strings.Split(q, "\n")
+	for i := range lines {
+		if strings.HasPrefix(strings.TrimSpace(lines[i]), "--") {
+			lines[i] = ""
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
 func queryType(q string) (t argsType) {
+	q = filterCommentLines(q)
 	if numericArgsRe.MatchString(q) {
 		t |= numericArgs
 	}

@@ -5,6 +5,7 @@
 * Fixed topic retry policy callback call: not call it with nil error 
 * Deprecated `trace.Driver.OnConnTake` event callback
 * Added `trace.Driver.OnConnDial` event callback
+* Upgraded `golang.org/x/*` dependency's for fix `CVE-2022-41723`
 
 ## v3.42.10
 * Added exit from retryer if got grpc-error `Unauthenticated` on `discovery/ListEndpoints` call  
